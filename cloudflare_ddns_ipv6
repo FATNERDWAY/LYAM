@@ -21,6 +21,7 @@ TYPE="AAAA"
 # Time To Live
 TTL="60"
 
+
 get_local_ip() {
   if [ "${1}" = "0" ]; then
     IP=`ip address show dev ${LOCAL_IFACE} | grep "inet" | grep -v 'inet6' | awk '{print $2}' | awk -F '/' '{print $1}'`
