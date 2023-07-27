@@ -1,0 +1,89 @@
+#!/bin/bash
+
+# PPPoE Interface name
+LOCAL_IFACE=""
+# API URL
+URL="https://api.cloudflare.com/client/v4/zones"
+# Domain name
+DOMAIN=""
+# Host name and domain name
+RECORD=""
+# Cloudflare account
+AUTH_EMAIL=""
+# Cloudflare API key
+AUTH_KEY=""
+# Domain zone ID
+ZONE_ID=""
+# DNS record ID
+RECORD_ID=""
+# Record type(IPv4)
+TYPE="A"
+# Time To Live
+TTL="60"
+
+
+get_local_ip() {
+  if [ "${1}" = "0" ]; then
+    IP=`ip address show dev ${LOCAL_IFACE} | grep "inet" | grep -v 'inet6' | awk '{print $2}' | awk -F '/' '{print $1}'`
+    echo "${IP}"
+  elif [ "${1}" = "1" ]; then
+    IP=`ip address show dev ${LOCAL_IFACE} | grep "inet6" | awk '{print $2}' | awk -F '/' '{print $1}' | grep -v '^fe80:'`
+    echo "${IP}"
+  else
+    echo "Function get_local_ip 0 or 1"
+  fi
+}
+
+json_data() {
+cat <<EOF
+{   
+  "type": "${TYPE}",
+  "name": "${RECORD}",
+  "content": "$(get_local_ip 0)",
+  "ttl": ${TTL}
+}
+EOF
+}
+
+get_zone_id() {
+  local RESULT=`curl --silent --request GET --url "${URL}?name=${DOMAIN}" \
+    --header "Content-Type: application/json" \
+    --header "X-Auth-Email: ${AUTH_EMAIL}" --header "X-Auth-Key: ${AUTH_KEY}" | \
+    grep -o -E '\[\{"id":"[a-z0-9]{32}",' | cut -d '"' -f 4`
+  echo "${RESULT}"
+}
+
+get_record_id() {
+  local RESULT=`curl --silent --request GET --url "${URL}/${ZONE_ID}/dns_records?name=${RECORD}&type=${TYPE}" \
+    --header "Content-Type: application/json" \
+    --header "X-Auth-Email: ${AUTH_EMAIL}" --header "X-Auth-Key: ${AUTH_KEY}" | \
+    grep -o -E '\[\{"id":"[a-z0-9]{32}",' | cut -d '"' -f 4`
+  echo "${RESULT}"
+}
+
+update_dns_record() {
+  local RESULT=`curl --silent --request PUT --url "${URL}/${ZONE_ID}/dns_records/${RECORD_ID}" \
+    --header "Content-Type: application/json" \
+    --header "X-Auth-Email: ${AUTH_EMAIL}" --header "X-Auth-Key: ${AUTH_KEY}" \
+    --data "$(json_data)"`
+  echo "${RESULT}" >> /tmp/cloudflare_ddns.log
+}
+
+
+if [ -z "${LOCAL_IFACE}" ] || [ -z "${DOMAIN}" ] || [ -z "${RECORD}" ] || [ -z "${AUTH_EMAIL}" ] || [ -z "${AUTH_KEY}" ]; then
+  echo "Input LOCAL_IFACE DOMAIN RECORD AUTH_EMAIL AUTH_KEY."
+  exit 999
+fi
+
+if [ -z "${ZONE_ID}" ]; then
+  ZONE_ID=$(get_zone_id)
+fi
+
+if [ -z "${RECORD_ID}" ]; then
+  RECORD_ID="$(get_record_id)"
+fi
+
+echo "${DOMAIN} Zone ID: ${ZONE_ID}" >> /tmp/cloudflare_ddns.log
+echo "${RECORD} ID(IPv4 ${TYPE}): ${RECORD_ID}" >> /tmp/cloudflare_ddns.log
+update_dns_record
+
